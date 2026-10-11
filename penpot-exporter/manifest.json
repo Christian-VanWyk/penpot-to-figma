@@ -1,0 +1,7 @@
+{
+  "name": "Export to Figma",
+  "description": "Exports the selected boards and layers to a file that the 'Import from Penpot' Figma plugin can rebuild.",
+  "code": "plugin.js",
+  "icon": "icon.png",
+  "permissions": ["content:read", "allow:downloads"]
+}

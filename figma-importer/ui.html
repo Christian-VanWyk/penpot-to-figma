@@ -1,0 +1,93 @@
+<style>
+  body { margin: 0; padding: 16px; font: 12px/1.45 Inter, system-ui, sans-serif; background: var(--figma-color-bg, #fff); color: var(--figma-color-text, #1f1f1f); }
+  h1 { font-size: 14px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; color: var(--figma-color-text-secondary, #6b6b6b); }
+  .drop { border: 1px dashed var(--figma-color-border, #d0d0d0); border-radius: 8px; padding: 18px 12px; text-align: center; cursor: pointer; margin-bottom: 12px; }
+  .drop.over { border-color: var(--figma-color-border-brand, #0d99ff); background: var(--figma-color-bg-brand-tertiary, #e5f4ff); }
+  .drop strong { display: block; margin-bottom: 2px; }
+  textarea { width: 100%; box-sizing: border-box; height: 56px; font: 11px monospace; border: 1px solid var(--figma-color-border, #d0d0d0); border-radius: 6px; padding: 6px; background: transparent; color: inherit; resize: none; margin-bottom: 12px; }
+  label { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; cursor: pointer; }
+  button { width: 100%; border: 0; border-radius: 6px; padding: 9px 14px; font: inherit; font-weight: 600; cursor: pointer; background: var(--figma-color-bg-brand, #0d99ff); color: var(--figma-color-text-onbrand, #fff); }
+  button:disabled { opacity: .5; cursor: default; }
+  progress { width: 100%; height: 6px; margin-top: 10px; }
+  #status { margin-top: 10px; }
+  .warn { color: var(--figma-color-text-warning, #9a5b12); }
+  ul { margin: 6px 0 0; padding-left: 16px; max-height: 110px; overflow: auto; }
+</style>
+
+<h1>Import from Penpot</h1>
+<p>Open a <code>.penpot-figma.json</code> file made by the “Export to Figma” plugin in Penpot.</p>
+
+<div class="drop" id="drop">
+  <strong id="fileLabel">Choose a file or drop it here</strong>
+  <span id="fileInfo">.penpot-figma.json</span>
+  <input type="file" id="file" accept=".json,application/json" hidden>
+</div>
+<textarea id="paste" placeholder="…or paste the copied export here"></textarea>
+
+<label><input type="checkbox" id="autoLayout" checked> Turn Penpot flex layouts into Auto Layout</label>
+
+<button id="go" disabled>Import</button>
+<progress id="bar" value="0" max="1" hidden></progress>
+<div id="status"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let json = null;
+
+  function setJson(text, label) {
+    try {
+      const doc = JSON.parse(text);
+      if (doc.format !== 'penpot-to-figma') throw new Error('not a Penpot export');
+      json = text;
+      $('fileLabel').textContent = label;
+      $('fileInfo').textContent = (doc.source && doc.source.page ? 'Page “' + doc.source.page + '” · ' : '') + (doc.stats ? doc.stats.layers + ' layers' : '');
+      $('go').disabled = false;
+      $('status').textContent = '';
+    } catch (e) {
+      json = null; $('go').disabled = true;
+      $('status').innerHTML = '<span class="warn">That isn’t a Penpot export file.</span>';
+    }
+  }
+  function readFile(file) {
+    const r = new FileReader();
+    r.onload = () => setJson(r.result, file.name);
+    r.readAsText(file);
+  }
+
+  $('drop').onclick = () => $('file').click();
+  $('file').onchange = (e) => { if (e.target.files[0]) readFile(e.target.files[0]); };
+  $('drop').ondragover = (e) => { e.preventDefault(); $('drop').classList.add('over'); };
+  $('drop').ondragleave = () => $('drop').classList.remove('over');
+  $('drop').ondrop = (e) => { e.preventDefault(); $('drop').classList.remove('over'); if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); };
+  $('paste').oninput = () => { const v = $('paste').value.trim(); if (v) setJson(v, 'Pasted export'); };
+
+  $('go').onclick = () => {
+    if (!json) return;
+    $('go').disabled = true;
+    $('status').textContent = 'Importing…';
+    parent.postMessage({ pluginMessage: { type: 'import', json, options: { autoLayout: $('autoLayout').checked } } }, '*');
+  };
+
+  onmessage = (e) => {
+    const m = e.data.pluginMessage;
+    if (!m) return;
+    if (m.type === 'progress') {
+      $('bar').hidden = false; $('bar').max = m.total || 1; $('bar').value = m.done;
+      $('status').textContent = 'Building ' + m.done + ' / ' + m.total + ' layers…';
+    }
+    if (m.type === 'done') {
+      $('go').disabled = false;
+      const r = m.report;
+      let html = 'Imported ' + r.layers + ' layers.';
+      if (r.missingFonts.length) html += '<div class="warn">Fonts not installed in Figma, replaced with the closest match:<ul>' + r.missingFonts.map((f) => '<li>' + esc(f) + '</li>').join('') + '</ul></div>';
+      if (r.warnings.length) html += '<div class="warn">' + r.warnings.length + ' note(s):<ul>' + r.warnings.map((w) => '<li>' + esc(w) + '</li>').join('') + '</ul></div>';
+      $('status').innerHTML = html;
+    }
+    if (m.type === 'error') {
+      $('go').disabled = false;
+      $('status').innerHTML = '<span class="warn">Import failed: ' + esc(m.message) + '</span>';
+    }
+  };
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+</script>

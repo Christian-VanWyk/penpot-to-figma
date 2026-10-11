@@ -1,0 +1,7 @@
+# Exported design files can contain private work and large embedded images
+*.penpot-figma.json
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini

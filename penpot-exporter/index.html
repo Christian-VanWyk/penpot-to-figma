@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Export to Figma</title>
+<style>
+  :root { --bg: #ffffff; --fg: #1f1f1f; --muted: #6b6b6b; --line: #e3e3e3; --accent: #0a7a7d; --accent-fg: #ffffff; --warn: #9a5b12; }
+  body.dark { --bg: #18191b; --fg: #f0f0f0; --muted: #a0a0a0; --line: #2f3033; --accent: #31b3a8; --accent-fg: #0b1212; --warn: #e3a35b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font: 13px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  .box { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  label { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; cursor: pointer; }
+  button { width: 100%; border: 0; border-radius: 6px; padding: 10px 14px; font: inherit; font-weight: 600; cursor: pointer; background: var(--accent); color: var(--accent-fg); }
+  button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); margin-top: 8px; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { margin-top: 12px; min-height: 20px; }
+  .warn { color: var(--warn); }
+  progress { width: 100%; height: 6px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>Export to Figma</h1>
+<p>Creates a file you can open with the “Import from Penpot” plugin in Figma.</p>
+
+<div class="box">
+  <div class="row"><span>Page</span><strong id="page">–</strong></div>
+  <div class="row"><span>Will export</span><strong id="scope">–</strong></div>
+</div>
+
+<label><input type="checkbox" id="hidden"> Include hidden layers</label>
+
+<button id="export">Export</button>
+<button id="copy" class="secondary" hidden>Copy to clipboard instead</button>
+<progress id="bar" value="0" max="1" hidden></progress>
+<div id="status"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  if (new URLSearchParams(location.search).get('theme') === 'dark') document.body.classList.add('dark');
+  let lastJson = null;
+
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || typeof m !== 'object') return;
+    if (m.type === 'selection') {
+      $('page').textContent = m.page || '–';
+      $('scope').textContent = m.selected ? m.selected + ' selected layer' + (m.selected > 1 ? 's' : '') : 'Whole page (' + m.topLevel + ' top-level layers)';
+    }
+    if (m.type === 'progress') {
+      $('bar').hidden = false; $('bar').max = m.total || 1; $('bar').value = m.done;
+      $('status').textContent = 'Exporting ' + m.done + ' / ' + m.total + ' layers…';
+    }
+    if (m.type === 'result') {
+      $('export').disabled = false;
+      lastJson = m.json;
+      const s = m.stats || {};
+      $('status').innerHTML = 'Exported ' + s.layers + ' layers and ' + s.images + ' images.' +
+        (s.warnings ? ' <span class="warn">' + s.warnings + ' warning(s) are listed inside the file.</span>' : '');
+      download(m.fileName, m.json);
+      $('copy').hidden = false;
+    }
+    if (m.type === 'error') {
+      $('export').disabled = false;
+      $('status').innerHTML = '<span class="warn">Export failed: ' + escapeHtml(m.message) + '</span>';
+    }
+  });
+
+  $('export').onclick = () => {
+    $('export').disabled = true;
+    $('status').textContent = 'Starting…';
+    parent.postMessage({ type: 'export', options: { includeHidden: $('hidden').checked } }, '*');
+  };
+
+  $('copy').onclick = async () => {
+    if (!lastJson) return;
+    try { await navigator.clipboard.writeText(lastJson); $('status').textContent = 'Copied. In Figma, paste it into the importer.'; }
+    catch (e) { $('status').innerHTML = '<span class="warn">Clipboard is blocked here. Use the downloaded file instead.</span>'; }
+  };
+
+  function download(name, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  parent.postMessage({ type: 'ready' }, '*');
+</script>
+</body>
+</html>
